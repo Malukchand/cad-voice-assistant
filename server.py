@@ -5,6 +5,7 @@ import os
 # -------- Feature Flag --------
 ENABLE_HEAVY = os.getenv("ENABLE_HEAVY", "false").lower() == "true"
 # ------------------------------
+import networkx as nx
 
 import os
 import shutil
