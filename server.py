@@ -1,5 +1,10 @@
 # server.py
 # Backend API for CAD Voice Assistant (FastAPI)
+import os
+
+# -------- Feature Flag --------
+ENABLE_HEAVY = os.getenv("ENABLE_HEAVY", "false").lower() == "true"
+# ------------------------------
 
 import os
 import shutil
@@ -11,7 +16,6 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from fastapi import FastAPI, UploadFile, File, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-import whisper
 import io
 import networkx as nx
 import matplotlib
@@ -36,10 +40,37 @@ def stop_speaking():
                 CURRENT_AUDIO_PROCESS.kill()
         CURRENT_AUDIO_PROCESS = None
 
-# CAD Logic Imports
-from cad.loader import load_step_shape
-from cad.export import export_to_stl
-from cad.tree import build_assembly_tree
+# CAD Logic Imports - CONDITIONAL
+if ENABLE_HEAVY:
+    from cad.loader import load_step_shape
+    from cad.export import export_to_stl
+    from cad.tree import build_assembly_tree
+    from cad.info import create_cad_summary
+    from cad.features import find_cylindrical_faces, create_feature_summary
+    from cad.modify import scale_shape, translate_shape, delete_solid, resize_cylindrical_feature, scale_shape_non_uniform, rotate_shape, get_mass_properties
+    from ai.cad_command_interpreter import interpret_command, answer_question
+    from voice.tts_basic import speak
+    import whisper
+    WHISPER_MODEL = whisper.load_model("base")
+else:
+    # Mock functions for demo mode
+    def load_step_shape(*args): return None
+    def export_to_stl(*args): pass
+    def build_assembly_tree(*args): return {"id": "demo", "name": "Demo Mode", "type": "Assembly", "children": []}
+    def create_cad_summary(*args): return "Demo mode - CAD features disabled"
+    def find_cylindrical_faces(*args): return []
+    def create_feature_summary(*args): return "Demo mode"
+    def scale_shape(*args): return None
+    def translate_shape(*args): return None
+    def delete_solid(*args): return None
+    def resize_cylindrical_feature(*args): return None
+    def scale_shape_non_uniform(*args): return None
+    def rotate_shape(*args): return None
+    def get_mass_properties(*args): return {}
+    def interpret_command(*args): return {"response": "Demo mode - voice features disabled"}
+    def answer_question(*args): return "Demo mode"
+    def speak(*args): pass
+    WHISPER_MODEL = None
 from cad.info import create_cad_summary
 from cad.features import find_cylindrical_faces, create_feature_summary
 from cad.modify import scale_shape, translate_shape, delete_solid, resize_cylindrical_feature, scale_shape_non_uniform, rotate_shape, get_mass_properties
@@ -57,6 +88,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -------- Health Check (for Render) --------
+@app.get("/")
+def health():
+    return {
+        "status": "ok",
+        "heavy_enabled": ENABLE_HEAVY
+    }
+# -------------------------------------------
+
 # Global State
 CURRENT_ASSETS_DIR = "assets"
 os.makedirs(CURRENT_ASSETS_DIR, exist_ok=True)
@@ -66,17 +106,29 @@ WHISPER_MODEL = None
 
 @app.on_event("startup")
 def load_models():
-    global WHISPER_MODEL
-    print("Loading Whisper Model...")
-    WHISPER_MODEL = whisper.load_model("small")
-    print("Whisper Ready.")
+    if ENABLE_HEAVY:
+        global WHISPER_MODEL
+        print("Loading Whisper Model...")
+        WHISPER_MODEL = whisper.load_model("small")
+        print("Whisper Ready.")
+    else:
+        print("Demo mode - heavy features disabled")
 
 @app.get("/")
-def read_root():
-    return {"message": "CAD Voice Assistant API Ready"}
+def health():
+    return {
+        "status": "ok",
+        "heavy_enabled": ENABLE_HEAVY
+    }
 
 @app.post("/upload")
 async def upload_step(file: UploadFile = File(...)):
+    if not ENABLE_HEAVY:
+        return {
+            "status": "disabled",
+            "message": "STEP processing disabled on demo server"
+        }
+    
     global CURRENT_SHAPE
     
     # Save uploaded file
@@ -129,6 +181,12 @@ def get_component(component_id: str):
 
 @app.post("/api/voice")
 async def process_voice(file: UploadFile = File(...)):
+    if not ENABLE_HEAVY:
+        return {
+            "status": "disabled",
+            "message": "Voice disabled on demo server"
+        }
+    
     global CURRENT_SHAPE, WHISPER_MODEL
     
     if CURRENT_SHAPE is None:
